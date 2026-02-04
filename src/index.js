@@ -1,10 +1,8 @@
-import express from "express";
 import dotenv from "dotenv";
-import webHookRoutes from "./routes/webHookRoutes.js";
-
-
-
 dotenv.config();
+
+import express from "express";
+import webHookRoutes from "./routes/webHookRoutes.js";
 
 const app = express();
 

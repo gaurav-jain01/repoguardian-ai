@@ -1,4 +1,9 @@
-import { getPullRequestFile, getFileContent, addReviewComment } from "../services/githubService.js";
+import { 
+  getPullRequestFiles, 
+  getFileContent, 
+  addReviewComment, 
+  extractChangedLines 
+} from "../services/githubService.js";
 
 export const handleWebhook = async (req, res) => {
   const event = req.headers["x-github-event"];
@@ -7,7 +12,7 @@ export const handleWebhook = async (req, res) => {
 
   // --- PUSH EVENT -------------------------------------------------
   if (event === "push") {
-    const { ref, repository, head_commit } = req.body;
+    const { ref, head_commit } = req.body;
 
     console.log(`🚀 Push received on ${ref}`);
     console.log(`📝 Commit msg: ${head_commit?.message}`);
@@ -20,38 +25,60 @@ export const handleWebhook = async (req, res) => {
     try {
       const { action, pull_request, repository } = req.body;
 
-      if (!req.body) {
-        console.error("❌ Missing body");
+      if (!pull_request) {
+        console.error("❌ Missing pull request object");
         return res.status(400).send("Bad Request");
       }
 
-      if (pull_request && (action === "opened" || action === "synchronize")) {
-       const owner = repository.owner.login;
-  const repo = repository.name;
-  const pullNumber = pull_request.number;
+      if (action === "opened" || action === "synchronize") {
 
-  console.log(`🔍 Fetching PR files for #${pullNumber}`);
+        const owner = repository.owner.login;
+        const repo = repository.name;
+        const pullNumber = pull_request.number;
 
-  const files = await getPullRequestFile(owner, repo, pullNumber);
+        console.log(`🔍 Fetching PR files for #${pullNumber}`);
 
-  for (const file of files) {
-    console.log("📄 File:", file.filename);
-    console.log("📝 Patch:", file.patch);
+        const files = await getPullRequestFiles(owner, repo, pullNumber);
 
-    // Example: Fetch full file content
-    const content = await getFileContent(owner, repo, file.filename, pull_request.head.sha);
+        for (const file of files) {
+          console.log("📄 File:", file.filename);
+          console.log("📝 Patch:", file.patch);
 
-    // Example: add a comment on line 5
-    await addReviewComment({
-      owner,
-      repo,
-      pullNumber,
-      body: "⚠️ Potential issue detected here.",
-      commitId: pull_request.head.sha,
-      filePath: file.filename,
-      line: 5,
-    });
-      }}
+          // Skip if no patch available
+          if (!file.patch) {
+            console.log("⏭️ No patch found, skipping file");
+            continue;
+          }
+
+          // Extract changed line numbers from patch
+          const changedLines = extractChangedLines(file.patch);
+
+          console.log("📌 Changed lines:", changedLines);
+
+          // Fetch file content (optional)
+          const content = await getFileContent(
+            owner,
+            repo,
+            file.filename,
+            pull_request.head.sha
+          );
+
+          // Post comment on each changed line
+          for (const lineNumber of changedLines) {
+            const resp = await addReviewComment({
+              owner,
+              repo,
+              pullNumber,
+              body: "⚠️ Potential issue detected here.",
+              commitId: pull_request.head.sha,
+              filePath: file.filename,
+              line: lineNumber,
+            });
+
+            console.log("💬 Comment posted:", resp?.id);
+          }
+        }
+      }
 
       return res.status(200).send("PR Webhook Received");
     } catch (error) {

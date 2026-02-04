@@ -1,6 +1,6 @@
 import octokit from "./octokit.js";
 
-export const getPullRequestFile = async (owner, repo, pullNumber) => {
+export const getPullRequestFiles = async (owner, repo, pullNumber) => {
     const {data} = await octokit.rest.pulls.listFiles({
         owner,
         repo,
@@ -31,7 +31,7 @@ export const addReviewComment = async ({
   filePath,
   line,
 }) => {
-  return await octokit.pulls.createReviewComment({
+  return await octokit.rest.pulls.createReviewComment({
     owner,
     repo,
     pull_number: pullNumber,
@@ -40,4 +40,31 @@ export const addReviewComment = async ({
     path: filePath,
     line, 
   });
+};
+
+
+export const extractChangedLines = (patch) => {
+  const lines = [];
+  const patchLines = patch.split("\n");
+
+  let currentNewLineNumber = null;
+
+  for (const line of patchLines) {
+    // Match @@ -oldStart,oldCount +newStart,newCount @@
+    if (line.startsWith("@@")) {
+      const match = line.match(/\+(\d+),?/);
+      if (match) currentNewLineNumber = parseInt(match[1], 10);
+      continue;
+    }
+
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      lines.push(currentNewLineNumber);
+    }
+
+    if (!line.startsWith("-")) {
+      currentNewLineNumber++;
+    }
+  }
+
+  return lines;
 };

@@ -1,4 +1,3 @@
-import fs from "fs";
 import Groq from "groq-sdk";
 import dotenv from "dotenv";
 
@@ -6,60 +5,42 @@ dotenv.config();
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-function cosineSimilarity(a, b) {
-  let dot = 0, normA = 0, normB = 0;
+export async function generateAIComment({ code, filename, line }) {
+  const prompt = `
+You are RepoGuardian AI, an expert senior code reviewer.
 
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    normA += a[i] ** 2;
-    normB += b[i] ** 2;
-  }
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+Your job is to analyze ONLY the changed code and provide a short, useful review comment.
+
+Rules:
+1. DO NOT describe what changed.
+2. ONLY comment if meaningful:
+   - UX clarity
+   - Logic improvement
+   - Naming issues
+   - Consistency issues
+   - Security concerns
+   - Possible side effects
+3. If it's just a harmless text/label change, give a UX/tone suggestion (not a warning).
+4. Keep comments under 30 words.
+5. Respond ONLY as JSON:
+{
+ "comment": "your short review comment"
 }
 
-export async function askBot(question) {
-  let vectorDB = [];
+File: ${filename}
+Line: ${line}
 
-  try {
-    vectorDB = JSON.parse(fs.readFileSync("./ai-bot/vector-db.json"));
-  } catch {
-    console.log("⚠️ Vector DB empty — fallback mode enabled");
-  }
-
-  let context = "";
-
-  if (vectorDB.length > 0) {
-    const embed = await groq.embeddings.create({
-      model: "nomic-embed-text",
-      input: question,
-    });
-
-    const userVector = embed.data[0].embedding;
-
-    let best = { score: -1, text: "" };
-
-    for (let item of vectorDB) {
-      const score = cosineSimilarity(userVector, item.embedding);
-      if (score > best.score) best = { score, text: item.text };
-    }
-
-    context = best.text;
-  }
+Changed Code:
+${code}
+  `;
 
   const completion = await groq.chat.completions.create({
     model: "llama-3.1-8b-instant",
-    messages: [
-      {
-        role: "system",
-        content:
-          "You are an AI assistant for RepoGuardian. Answer clearly and concisely using only the provided context.",
-      },
-      {
-        role: "user",
-        content: `Context:\n${context}\n\nQuestion: ${question}`,
-      },
-    ],
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.2,
+    response_format: { type: "json_object" },
   });
 
-  return completion.choices[0].message.content.trim();
+  const output = JSON.parse(completion.choices[0].message.content);
+  return output.comment;
 }
